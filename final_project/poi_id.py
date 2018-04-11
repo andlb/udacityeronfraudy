@@ -88,8 +88,9 @@ def delete_outilier(data_dict):
         IQR = dataframe.quantile(q=0.75) - dataframe.quantile(q=0.25)
         outliers = dataframe[(dataframe > (q3 + 1.5 * IQR) ) | (dataframe < (q1 - 1.5*IQR) )].count(axis=1)
         outliers.sort_values(axis = 0, ascending=False, inplace=True)
+        #print the first 14 outiliers
         print outliers.head(14)
-        #we are going to remove only the total.        
+        #delete the outlier
         data_dict.pop(outliers.keys()[0],0)
         return data_dict
     except KeyError:
@@ -114,15 +115,24 @@ def print_scatter(data_dict,features_list, x_position,y_position):
     matplotlib.pyplot.ylabel(features_list[y_position])
     matplotlib.pyplot.show()
     
-def scaling_feature(features):
+def scaling_feature(features, features_list, my_dataset):
     """
-    Scale the features 
+    Scale the features and update my_dataset with the new values scaled
     Return
         Numpy:
-            return the features value scaled.
+            return the features with the value scaled.
+            return my_dataset with the values scaled.
     """
     scaler = MinMaxScaler()
-    return scaler.fit_transform(features)
+    new_values = scaler.fit_transform(features)    
+    pos_row = 0    
+    for key in my_dataset.keys():        
+        pos_col = 0        
+        for feature in features_list[1:]:
+            my_dataset[key][feature] = new_values[pos_row,pos_col]            
+            pos_col += 1
+        pos_row +=1
+    return new_values, my_dataset
 
 
 def compute_fraction( poi_messages, all_messages ):
@@ -145,7 +155,6 @@ def create_feature(data_dict, features_list):
                 return the features_list with the new features names.
             
     """
-
     my_dataset = data_dict
     keys = my_dataset.keys()
     for key in keys:
@@ -203,6 +212,7 @@ def best_algorithm(features_train, labels_train):
         sklearn.svm.SVC
             The classifier after fit the trainning data
     """
+    from sklearn.naive_bayes import GaussianNB
     from sklearn.svm import SVC
     from sklearn.model_selection import GridSearchCV
     from sklearn.pipeline import Pipeline
@@ -281,20 +291,23 @@ def data_analyse():
     data_dict = delete_outilier(data_dict)
     data_dict.pop('THE TRAVEL AGENCY IN THE PARK',0)
     print_scatter(data_dict,features_list,1,2)
-    #create new feature
+    #create new feature    
     my_dataset, features_list  = create_feature(data_dict,features_list)
     #show the reason to scale.
     key = 'HANNON KEVIN P'
     print "Index {0} : Salary {1:.2f},  Total stock value {2:.2f}".format(key, float(data_dict[key]['salary']), float(data_dict[key]['total_stock_value']))
 
-    data = featureFormat(my_dataset, features_list, sort_keys = True)
+    data = featureFormat(my_dataset, features_list,remove_all_zeroes = False, sort_keys = False)
     labels, features = targetFeatureSplit(data)
     #scaling the features
-    features = scaling_feature(features)
+    features, my_dataset = scaling_feature(features, features_list, my_dataset)
+
+    data = featureFormat(my_dataset, features_list, remove_all_zeroes=True, sort_keys = False)
+    labels, features = targetFeatureSplit(data)    
     #split to trainning and testing data.
     from sklearn.cross_validation import train_test_split
     features_train, features_test, labels_train, labels_test = \
-        train_test_split(features, labels, test_size=0.4, random_state=12)
+        train_test_split(features, labels, test_size=0.4, random_state=42)
     #print the metrics prediction for all features.
     print "All features"
     best_classify_algorithm(features_train, features_test, labels_train, labels_test,len(features_list))
@@ -317,17 +330,19 @@ def data_analyse():
         best_classify_algorithm(new_features_train, new_features_test, labels_train, labels_test, n_feature)
     print ""
 
-    print "SVC tunning analysis"
-    selectkbest = SelectKBest(f_classif, k=2)
-    selectkbest.fit(features_train, labels_train)
-    supported_list = selectkbest.get_support()
-    #creating the feature list after run the selectkbestfeature.
-    features_list = [features_list[x+1] for x in range(0,len(supported_list)) if supported_list[x]==True ]
+    print "PCA "
+    pca = PCA(n_components=9, whiten=True,svd_solver='randomized').fit(features_train)
+    new_features_train = pca.transform(features_train)
+    new_features_test = pca.transform(features_test)
+
+    
+    features_list = ['poi'] + [features_list[x+1] for x in range(0,len(supported_list)) if supported_list[x]==True ]
     new_features_train = selectkbest.transform(features_train)
+   
     new_features_test = SelectKBest(f_classif, k=2).fit_transform(features_test, labels_test)
     analysis_tune_parameters(new_features_train, new_features_test, labels_train, labels_test, 2)
     # Return the best algorithm
-    clf = best_algorithm(new_features_train, labels_train)
+    clf = best_algorithm(new_features_train, labels_train)    
     dump_classifier_and_data(clf, my_dataset, features_list)
 
 if __name__ == '__main__':
