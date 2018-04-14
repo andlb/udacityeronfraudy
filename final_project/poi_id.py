@@ -5,6 +5,7 @@ import codecs
 import numpy as np
 import pandas as pd
 import math
+import time
 
 import matplotlib.pyplot
 from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
@@ -13,6 +14,16 @@ from sklearn.feature_selection import  SelectKBest, f_classif
 from sklearn.cross_validation import StratifiedShuffleSplit, train_test_split
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.decomposition import PCA
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report
+
+from sklearn.naive_bayes import GaussianNB
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import SVC
+from sklearn.decomposition import PCA    
+    
+from sklearn.model_selection import GridSearchCV
+from sklearn.pipeline import Pipeline
 
 sys.path.append("../tools/")
 from feature_format import featureFormat, targetFeatureSplit
@@ -22,6 +33,18 @@ from tester import dump_classifier_and_data
 financial_features = ['salary', 'deferral_payments', 'total_payments', 'loan_advances', 'bonus', 'restricted_stock_deferred', 'deferred_income', 'total_stock_value', 'expenses', 'exercised_stock_options', 'other', 'long_term_incentive', 'restricted_stock', 'director_fees']
 email_features = ['to_messages', 'email_address', 'from_poi_to_this_person', 'from_messages', 'from_this_person_to_poi', 'shared_receipt_with_poi']
 all_features = ['poi'] + email_features + financial_features
+
+time_decision_tree = []
+time_decision_tree_tunned = []
+time_knn = []
+time_knn_tunned = []
+time_svc = []
+time_svc_tunned = []
+
+precision = {}
+accuracy  = {}
+recall = {}
+f1score = {}
 
 
 def load_data():
@@ -166,104 +189,186 @@ def create_feature(data_dict, features_list):
     print_scatter(my_dataset,['poi','fraction_from_poi','fraction_to_poi'], 1,2)
     return my_dataset, features_list
 
-
-def metrics(pred, labels_test, model, n_feature):
-    """
-    Print the metrics Accuracy,precision, recall and f1-score and the number of features.
-    """
-    from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report
-    accuracy = accuracy_score(pred,labels_test)
-    print 'Report from {0} model. N_feature {2}. Accuracy: {1} '.format(model,accuracy,n_feature)
-    print classification_report(labels_test, pred )
-    
-   
-def analysis_tune_parameters(features_train, features_test, labels_train, labels_test, n_feature):    
-    """
-    Print the metrics from the SVC algorithm before and after tunning the algorithm.
-    The parameters tunned were
-        kernel': ['linear','rbf']
-        C': [0.001, 0.01, 0.1, 1, 10]
-        gamma': [0.001, 0.01, 0.1, 1]          
-    """
-    from sklearn.svm import SVC
-    from sklearn.model_selection import GridSearchCV
-    from sklearn.pipeline import Pipeline
-
-    clf = SVC(random_state = 42)
-    clf.fit(features_train, labels_train)
-    pred = clf.predict(features_test)
-    metrics(pred, labels_test, "No Tune decision_tree", n_feature)
-
-    parameters = [{'svc__kernel': ['linear','rbf'],
-                    'svc__C': [0.001, 0.01, 0.1, 1, 10],
-                    'svc__gamma': [0.001, 0.01, 0.1, 1]      
-                    }]
-    pipeline = Pipeline([('svc',SVC(random_state = 42))])
-    grid_search = GridSearchCV(estimator=pipeline, param_grid=parameters)
-    grid_search.fit(features_train, labels_train)
-    pred = grid_search.predict(features_test)
-    metrics(pred, labels_test, "SVC", n_feature)
-    print grid_search.best_estimator_
-
 def best_algorithm(features_train, labels_train):    
     """
     The best classifier algorithm finded to fit and predict this dataset.
     Return
-        sklearn.svm.SVC
+        KNeighborsClassifier
             The classifier after fit the trainning data
     """
-    from sklearn.naive_bayes import GaussianNB
-    from sklearn.svm import SVC
-    from sklearn.model_selection import GridSearchCV
-    from sklearn.pipeline import Pipeline
-
-    clf = SVC(C=10, kernel='rbf', gamma=1,random_state=42)    
-    clf.fit(features_train,labels_train)    
+    # clf = KNeighborsClassifier(algorithm='auto', leaf_size=30, metric='minkowski',
+    #        metric_params=None, n_jobs=1, n_neighbors=4, p=2,
+    #        weights='uniform')
+    clf = KNeighborsClassifier()
+    clf = clf.fit(features_train,labels_train)
     return clf
+
+def print_metrics(pred, labels_test, model, n_feature):
+    """
+    Print the metrics Accuracy,precision, recall and f1-score and the number of features.
+    """    
+    accuracy = accuracy_score(pred,labels_test)
+    print 'Report from {0} model. N_feature {2}. Accuracy: {1} '.format(model,accuracy,n_feature)
+    print classification_report(labels_test, pred )     
+
+def clean_precision_metric():
+    """
+    Initialize the global metric(precision, accuracy, recall, f1_score) variable
+    """
+    precision = {}    
+    accuracy  = {}
+    recall = {}
+    f1score = {}
+    
+
+def store_precision_metric(pred, labels_test, model, n_feature):
+    """
+    Add the model, the number of features and the precision in the precion global variabel
+    """
+    if not model in precision:
+        precision[model] = {}
+        accuracy[model] = {}
+        recall[model] = {}
+        f1score[model] = {}
+        
+    precision[model][n_feature] = precision_score(labels_test,pred,average='weighted')
+    accuracy[model][n_feature] = accuracy_score(labels_test,pred)
+    recall[model][n_feature] = recall_score(labels_test,pred,average='weighted')
+    f1score[model][n_feature] = f1_score(labels_test,pred,average='weighted')
+
+def bar_chart_algorithm(title,n_feature):     
+    models = ['GaussianNB','Decision_tree','SVC','KNN']    
+    bar_width = 0.20
+    index = np.arange(len(models))
+    colors = ['g','r','c','b']
+    count = 0
+    for model in models:
+        valores = (precision[model][n_feature], accuracy[model][n_feature], recall[model][n_feature], f1score[model][n_feature])        
+        between = bar_width
+        if count==0:
+            between = 0
+        index = index + between
+        matplotlib.pyplot.bar(index, valores, width=bar_width,label=model)
+        count += 1
+    matplotlib.pyplot.xlabel('Models')
+    matplotlib.pyplot.ylabel('Metrics')
+    matplotlib.pyplot.title('Models by Metrics')
+    index = np.arange(len(models))
+    matplotlib.pyplot.xticks(index + bar_width, ('Precision', 'Accuracy', 'Recall', 'F1-score'))    
+    matplotlib.pyplot.legend(bbox_to_anchor=(0.99,1), loc="upper left")
+    
+    matplotlib.pyplot.show()            
+
+def prec_chart_line_by_model(title):
+    """
+    Show the chart line of the precision colected from the 'GaussianNB','Decision_tree','SVC','KNN' models
+    for 2, 4, 7, 9 features.
+    """
+    models = ['GaussianNB','Decision_tree','SVC','KNN']
+    colors = ['g','r','c','b']
+    n_features_options = [2, 4, 7, 9]    
+    count = 0
+    for model in models:
+        array_precision = []
+        
+        for n_feature in n_features_options:
+            try:
+                 precision[model][n_feature]
+            except KeyError:
+                print "error: Model {0} with the feature {1}  are not present".format(model,n_feature)
+                return            
+            value_precision = precision[model][n_feature]
+            array_precision.append(value_precision)               
+        matplotlib.pyplot.plot(n_features_options,array_precision, color=colors[count], label=model)
+        count += 1
+    matplotlib.pyplot.title(title)
+    matplotlib.pyplot.axis([2, 9, 0.7, 1])
+    matplotlib.pyplot.legend(loc='upper right')
+    matplotlib.pyplot.xlabel('Number of features')
+    matplotlib.pyplot.ylabel('Precision')
+    matplotlib.pyplot.show()
+
+
+def print_best_estimator(grid_search,model):
+    try:
+            grid_search.best_estimator_
+    except KeyError:
+        print "error: Model {0} with the feature {1}  are not present".format(model,n_feature)
+        return  
+    print "The best estimator parameter for the model {0} is {1}".format(model,grid_search.best_estimator_)
 
 
 def best_classify_algorithm(features_train, features_test, labels_train, labels_test, n_feature):    
     """
     Print the metrics accuracy, precision, recall and F1-SCORE from the GaussianNB, Decision Tree, SVC, KNeighbors classifier algorithm:
     """
-    from sklearn.naive_bayes import GaussianNB
-    from sklearn.tree import DecisionTreeClassifier
-    from sklearn.neighbors import KNeighborsClassifier
-    from sklearn.svm import SVC
-    from sklearn.decomposition import PCA    
-        
-    from sklearn.model_selection import GridSearchCV
-    from sklearn.pipeline import Pipeline
-
     clf = GaussianNB()    
     clf.fit(features_train,labels_train)
     pred = clf.predict(features_test)    
-    metrics(pred, labels_test, "GaussianNB",n_feature)
+    print_metrics(pred, labels_test, "GaussianNB",n_feature)
+    store_precision_metric(pred, labels_test, "GaussianNB", n_feature)
 
-    pipeline = Pipeline([('decision_tree',DecisionTreeClassifier(random_state = 42))])
+    pipeline = Pipeline([('decision_tree', DecisionTreeClassifier(random_state = 42))])
     parameters = [{'decision_tree__min_samples_split': [2,3,4], 'decision_tree__criterion': ['gini', 'entropy']}]
+    start = time.time()
     grid_search = GridSearchCV(estimator=pipeline, param_grid=parameters)
     grid_search.fit(features_train, labels_train)
     pred = grid_search.predict(features_test)
-    metrics(pred, labels_test, "Decision_tree", n_feature)
-  
-    parameters = [{'svc__kernel': ['linear','rbf'],
-                    'svc__C': [0.001, 0.01, 0.1, 1, 10],
-                    'svc__gamma': [0.001, 0.01, 0.1, 1]      
-                    }]
-    pipeline = Pipeline([('svc',SVC(random_state = 42))])
-    grid_search = GridSearchCV(estimator=pipeline, param_grid=parameters)
-    grid_search.fit(features_train, labels_train)
-    pred = grid_search.predict(features_test)
-    metrics(pred, labels_test, "SVC", n_feature)
+    time_decision_tree_tunned.append(time.time() - start)        
+    print_metrics(pred, labels_test, "Decision_tree tunned", n_feature)    
+    store_precision_metric(pred, labels_test, "Decision_tree", n_feature)
+    print_best_estimator(grid_search,"Decision_tree")
+
+    start = time.time()
+    clf = DecisionTreeClassifier(random_state = 42)
+    clf.fit(features_train, labels_train)
+    pred = clf.predict(features_test)
+    time_decision_tree.append(time.time() - start)
+    print_metrics(pred, labels_test, "Decision_tree ", n_feature)    
     
-    k = [1,3,5,7,10]
-    parameters = [{'knn__n_neighbors': k}]
+    c = np.linspace(0.1,10,10)
+    gamma  = np.linspace(0.01,1,10)    
+    parameters = [{'svc__kernel': ['linear','rbf','poly','sigmoid'],
+                    'svc__C': c,
+                    'svc__gamma': gamma 
+                    }]
+    pipeline = Pipeline([('svc', SVC(random_state = 42))])
+    start = time.time()
+    grid_search = GridSearchCV(estimator = pipeline, param_grid = parameters)
+    grid_search.fit(features_train, labels_train)
+    pred = grid_search.predict(features_test)
+    time_svc_tunned.append(time.time() - start)    
+    print_metrics(pred, labels_test, "SVC Tunned", n_feature)    
+    store_precision_metric(pred, labels_test, "SVC", n_feature)
+    print_best_estimator(grid_search,"SVC")
+    
+    start = time.time()
+    clf = SVC(random_state = 42)
+    clf.fit(features_train, labels_train)
+    pred = clf.predict(features_test)
+    time_svc.append(time.time() - start)
+    print_metrics(pred, labels_test, "SVC ", n_feature)
+    
+    k = np.arange(4) + 1
+    parameters = [{'knn__n_neighbors': k, 'knn__weights':['uniform','distance']}]
     pipeline = Pipeline([('knn',KNeighborsClassifier())])
+    start = time.time()
     grid_search = GridSearchCV(estimator=pipeline, param_grid=parameters)
     grid_search.fit(features_train, labels_train)
     pred = grid_search.predict(features_test)
-    metrics(pred, labels_test, "KNN", n_feature)    
+    time_knn_tunned.append(time.time() - start)
+    print_metrics(pred, labels_test, "KNN Tunned", n_feature)    
+    store_precision_metric(pred, labels_test, "KNN", n_feature)
+    print_best_estimator(grid_search,"knn")
+
+    start = time.time()
+    clf = KNeighborsClassifier()
+    clf.fit(features_train, labels_train)
+    pred = clf.predict(features_test)
+    time_knn.append(time.time() - start)
+    store_precision_metric(pred, labels_test, "KNNnoTunned", n_feature)
+    print_metrics(pred, labels_test, "KNN ", n_feature)
+    
 
 def data_analyse():
     """
@@ -307,11 +412,18 @@ def data_analyse():
     #split to trainning and testing data.
     from sklearn.cross_validation import train_test_split
     features_train, features_test, labels_train, labels_test = \
-        train_test_split(features, labels, test_size=0.4, random_state=42)
+        train_test_split(features, labels, test_size=0.4, random_state=12)
+
+
+
     #print the metrics prediction for all features.
     print "All features"
     best_classify_algorithm(features_train, features_test, labels_train, labels_test,len(features_list))
+    print "precision {0}".format(precision)
+    clean_precision_metric()
     #reduce the number of features using the selectkbest function
+
+
     print "Selectk best"
     n_features_options = [2, 4, 7, 9]
     for n_feature in n_features_options:
@@ -320,6 +432,8 @@ def data_analyse():
         new_features_test = SelectKBest(f_classif, k=n_feature).fit_transform(features_test, labels_test)
         best_classify_algorithm(new_features_train, new_features_test, labels_train, labels_test, n_feature)        
     print ""    
+    prec_chart_line_by_model('SelectKBest Performance')
+    clean_precision_metric()
     #reduce the number of features using the pca function
     print "PCA - Principal component analysis"
     for n_feature in n_features_options:
@@ -328,22 +442,40 @@ def data_analyse():
         new_features_train = pca.transform(features_train)
         new_features_test = pca.transform(features_test)
         best_classify_algorithm(new_features_train, new_features_test, labels_train, labels_test, n_feature)
-    print ""
 
-    print "PCA "
-    pca = PCA(n_components=9, whiten=True,svd_solver='randomized').fit(features_train)
-    new_features_train = pca.transform(features_train)
-    new_features_test = pca.transform(features_test)
+    print ""
+    prec_chart_line_by_model('PCA Performance')
+    print "Average time"
+
+    print "Decision Tree average {0} ".format(np.average(time_decision_tree))
+    print "Decision Tree tunned average {0} ".format(np.average(time_decision_tree_tunned))
+    print "SVC average {0} ".format(np.average(time_svc))
+    print "SVC tunned average {0} ".format(np.average(time_svc_tunned))
+    print "KNN average {0} ".format(np.average(time_knn))
+    print "KNN tunned average {0} ".format(np.average(time_knn_tunned))
+    
 
     
+    selectkbest = SelectKBest(f_classif, k=2)
+    selectkbest.fit(features_train, labels_train)
+    supported_list = selectkbest.get_support()
+
+    #creating the feature list after run the selectkbestfeature.
     features_list = ['poi'] + [features_list[x+1] for x in range(0,len(supported_list)) if supported_list[x]==True ]
+    print "Feature list after apply the selectkbest with 2 features: {0}".format(features_list)
     new_features_train = selectkbest.transform(features_train)
-   
     new_features_test = SelectKBest(f_classif, k=2).fit_transform(features_test, labels_test)
-    analysis_tune_parameters(new_features_train, new_features_test, labels_train, labels_test, 2)
+    clean_precision_metric()
+    best_classify_algorithm(new_features_train, new_features_test, labels_train, labels_test, 2)        
+    bar_chart_algorithm("Algorithm with the best number of features - 2",2)   
+        
     # Return the best algorithm
     clf = best_algorithm(new_features_train, labels_train)    
     dump_classifier_and_data(clf, my_dataset, features_list)
 
 if __name__ == '__main__':
     data_analyse()
+
+
+
+    
