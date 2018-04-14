@@ -29,8 +29,6 @@
     label is the _first_ item in feature_list--very important
     that poi is listed first!
 """
-
-
 import numpy as np
 
 def featureFormat( dictionary, features, remove_NaN=True, remove_all_zeroes=True, remove_any_zeroes=False, sort_keys = False):
