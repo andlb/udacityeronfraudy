@@ -196,10 +196,9 @@ def best_algorithm(features_train, labels_train):
         KNeighborsClassifier
             The classifier after fit the trainning data
     """
-    # clf = KNeighborsClassifier(algorithm='auto', leaf_size=30, metric='minkowski',
-    #        metric_params=None, n_jobs=1, n_neighbors=4, p=2,
-    #        weights='uniform')
-    clf = KNeighborsClassifier()
+    clf = KNeighborsClassifier(algorithm='auto', leaf_size=30, metric='minkowski',
+           metric_params=None, n_jobs=1, n_neighbors=4, p=2,
+           weights='uniform')
     clf = clf.fit(features_train,labels_train)
     return clf
 
@@ -237,6 +236,10 @@ def store_precision_metric(pred, labels_test, model, n_feature):
     f1score[model][n_feature] = f1_score(labels_test,pred,average='weighted')
 
 def bar_chart_algorithm(title,n_feature):     
+    """
+    Show a bar chart algorithm with the metrics result by model - 
+    GaussianNB, Decision_tree,SVC, KNN
+    """
     models = ['GaussianNB','Decision_tree','SVC','KNN']    
     bar_width = 0.20
     index = np.arange(len(models))
@@ -414,15 +417,12 @@ def data_analyse():
     features_train, features_test, labels_train, labels_test = \
         train_test_split(features, labels, test_size=0.4, random_state=12)
 
-
-
     #print the metrics prediction for all features.
     print "All features"
     best_classify_algorithm(features_train, features_test, labels_train, labels_test,len(features_list))
     print "precision {0}".format(precision)
     clean_precision_metric()
     #reduce the number of features using the selectkbest function
-
 
     print "Selectk best"
     n_features_options = [2, 4, 7, 9]
@@ -453,9 +453,7 @@ def data_analyse():
     print "SVC tunned average {0} ".format(np.average(time_svc_tunned))
     print "KNN average {0} ".format(np.average(time_knn))
     print "KNN tunned average {0} ".format(np.average(time_knn_tunned))
-    
-
-    
+        
     selectkbest = SelectKBest(f_classif, k=2)
     selectkbest.fit(features_train, labels_train)
     supported_list = selectkbest.get_support()
