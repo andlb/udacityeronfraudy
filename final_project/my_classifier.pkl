@@ -12,7 +12,7 @@ Rp4
 (dp5
 S'n_neighbors'
 p6
-I5
+I4
 sS'n_jobs'
 p7
 I1
