@@ -9,7 +9,6 @@ import time
 
 import matplotlib.pyplot
 from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
-from sklearn.linear_model import LogisticRegression
 from sklearn.feature_selection import  SelectKBest, f_classif
 from sklearn.cross_validation import StratifiedShuffleSplit, train_test_split
 from sklearn.preprocessing import MinMaxScaler
@@ -46,6 +45,8 @@ accuracy  = {}
 recall = {}
 f1score = {}
 
+best_clf = GaussianNB()
+best_precision = 0.1
 
 def load_data():
     """ Load the dictionary containing the dataset     
@@ -97,12 +98,12 @@ def get_number_poi(dictionary):
     return poi
 
 
-def delete_outilier(data_dict):
+def analyze_outilier(data_dict):
     """
-        delete the outlier from the data_dict.
+        analyze the outlier from the data_dict.
         returns:
-            dict:
-                return the data_dict without the outlier
+            dict:                
+                return the data_dict with the outlier that we think we should delete
     """
     try:        
         dataframe = pd.DataFrame.from_dict(data_dict, orient = 'index',dtype = 'float64')
@@ -113,7 +114,7 @@ def delete_outilier(data_dict):
         outliers.sort_values(axis = 0, ascending=False, inplace=True)
         #print the first 14 outiliers
         print outliers.head(14)
-        #delete the outlier
+        #After analysis, we will delete the outlier TOTAL
         data_dict.pop(outliers.keys()[0],0)
         return data_dict
     except KeyError:
@@ -189,18 +190,6 @@ def create_feature(data_dict, features_list):
     print_scatter(my_dataset,['poi','fraction_from_poi','fraction_to_poi'], 1,2)
     return my_dataset, features_list
 
-def best_algorithm(features_train, labels_train):    
-    """
-    The best classifier algorithm finded to fit and predict this dataset.
-    Return
-        KNeighborsClassifier
-            The classifier after fit the trainning data
-    """
-    clf = KNeighborsClassifier(algorithm='auto', leaf_size=30, metric='minkowski',
-           metric_params=None, n_jobs=1, n_neighbors=4, p=2,
-           weights='uniform')
-    clf = clf.fit(features_train,labels_train)
-    return clf
 
 def print_metrics(pred, labels_test, model, n_feature):
     """
@@ -220,20 +209,25 @@ def clean_precision_metric():
     f1score = {}
     
 
-def store_precision_metric(pred, labels_test, model, n_feature):
+def store_precision_metric(pred, estimator, labels_test, model, n_feature):
     """
     Add the model, the number of features and the precision in the precion global variabel
     """
+    global best_precision
+    global best_clf
     if not model in precision:
         precision[model] = {}
         accuracy[model] = {}
         recall[model] = {}
         f1score[model] = {}
-        
-    precision[model][n_feature] = precision_score(labels_test,pred,average='weighted')
-    accuracy[model][n_feature] = accuracy_score(labels_test,pred)
+    ac_precision = precision_score(labels_test,pred,average='weighted')
+    precision[model][n_feature] = ac_precision
+    accuracy[model][n_feature] = accuracy_score(labels_test,pred)    
     recall[model][n_feature] = recall_score(labels_test,pred,average='weighted')
     f1score[model][n_feature] = f1_score(labels_test,pred,average='weighted')
+    if ac_precision > best_precision:
+        best_precision = ac_precision
+        best_clf = estimator
 
 def bar_chart_algorithm(title,n_feature):     
     """
@@ -309,7 +303,7 @@ def best_classify_algorithm(features_train, features_test, labels_train, labels_
     clf.fit(features_train,labels_train)
     pred = clf.predict(features_test)    
     print_metrics(pred, labels_test, "GaussianNB",n_feature)
-    store_precision_metric(pred, labels_test, "GaussianNB", n_feature)
+    store_precision_metric(pred, clf,labels_test, "GaussianNB", n_feature)
 
     pipeline = Pipeline([('decision_tree', DecisionTreeClassifier(random_state = 42))])
     parameters = [{'decision_tree__min_samples_split': [2,3,4], 'decision_tree__criterion': ['gini', 'entropy']}]
@@ -319,7 +313,7 @@ def best_classify_algorithm(features_train, features_test, labels_train, labels_
     pred = grid_search.predict(features_test)
     time_decision_tree_tunned.append(time.time() - start)        
     print_metrics(pred, labels_test, "Decision_tree tunned", n_feature)    
-    store_precision_metric(pred, labels_test, "Decision_tree", n_feature)
+    store_precision_metric(pred, grid_search.best_estimator_, labels_test, "Decision_tree", n_feature)
     print_best_estimator(grid_search,"Decision_tree")
 
     start = time.time()
@@ -342,7 +336,7 @@ def best_classify_algorithm(features_train, features_test, labels_train, labels_
     pred = grid_search.predict(features_test)
     time_svc_tunned.append(time.time() - start)    
     print_metrics(pred, labels_test, "SVC Tunned", n_feature)    
-    store_precision_metric(pred, labels_test, "SVC", n_feature)
+    store_precision_metric(pred, grid_search.best_estimator_, labels_test, "SVC", n_feature)
     print_best_estimator(grid_search,"SVC")
     
     start = time.time()
@@ -361,7 +355,7 @@ def best_classify_algorithm(features_train, features_test, labels_train, labels_
     pred = grid_search.predict(features_test)
     time_knn_tunned.append(time.time() - start)
     print_metrics(pred, labels_test, "KNN Tunned", n_feature)    
-    store_precision_metric(pred, labels_test, "KNN", n_feature)
+    store_precision_metric(pred, grid_search.best_estimator_, labels_test, "KNN", n_feature)
     print_best_estimator(grid_search,"knn")
 
     start = time.time()
@@ -369,7 +363,7 @@ def best_classify_algorithm(features_train, features_test, labels_train, labels_
     clf.fit(features_train, labels_train)
     pred = clf.predict(features_test)
     time_knn.append(time.time() - start)
-    store_precision_metric(pred, labels_test, "KNNnoTunned", n_feature)
+    store_precision_metric(pred, clf, labels_test, "KNNnoTunned", n_feature)
     print_metrics(pred, labels_test, "KNN ", n_feature)
     
 
@@ -396,7 +390,8 @@ def data_analyse():
 
     ### Task 2: Remove outliers
     print_scatter(data_dict,features_list,1,2)
-    data_dict = delete_outilier(data_dict)
+    data_dict = analyze_outilier(data_dict)
+    #THE AGENCY IS NOT A EMPLOYER, AND WE ARE GOING TO DELETE.
     data_dict.pop('THE TRAVEL AGENCY IN THE PARK',0)
     print_scatter(data_dict,features_list,1,2)
     #create new feature    
@@ -411,9 +406,8 @@ def data_analyse():
     features, my_dataset = scaling_feature(features, features_list, my_dataset)
 
     data = featureFormat(my_dataset, features_list, remove_all_zeroes=True, sort_keys = False)
-    labels, features = targetFeatureSplit(data)    
-    #split to trainning and testing data.
-    from sklearn.cross_validation import train_test_split
+    labels, features = targetFeatureSplit(data) 
+    
     features_train, features_test, labels_train, labels_test = \
         train_test_split(features, labels, test_size=0.4, random_state=12)
 
@@ -423,14 +417,14 @@ def data_analyse():
     print "precision {0}".format(precision)
     clean_precision_metric()
     #reduce the number of features using the selectkbest function
-
     print "Selectk best"
     n_features_options = [2, 4, 7, 9]
     for n_feature in n_features_options:
         print "k features {0}".format(n_feature)
-        new_features_train = SelectKBest(f_classif, k=n_feature).fit_transform(features_train, labels_train)
-        new_features_test = SelectKBest(f_classif, k=n_feature).fit_transform(features_test, labels_test)
-        best_classify_algorithm(new_features_train, new_features_test, labels_train, labels_test, n_feature)        
+        new_features = SelectKBest(f_classif, k=n_feature).fit_transform(features, labels)        
+        features_train, features_test, labels_train, labels_test = \
+            train_test_split(new_features, labels, test_size=0.4, random_state=12)
+        best_classify_algorithm(features_train, features_test, labels_train, labels_test, n_feature)
     print ""    
     prec_chart_line_by_model('SelectKBest Performance')
     clean_precision_metric()
@@ -438,10 +432,11 @@ def data_analyse():
     print "PCA - Principal component analysis"
     for n_feature in n_features_options:
         print "k features {0}".format(n_feature)
-        pca = PCA(n_components=n_feature, whiten=True,svd_solver='randomized').fit(features_train)
-        new_features_train = pca.transform(features_train)
-        new_features_test = pca.transform(features_test)
-        best_classify_algorithm(new_features_train, new_features_test, labels_train, labels_test, n_feature)
+        pca = PCA(n_components=n_feature, whiten=True,svd_solver='randomized').fit(features)
+        new_features = pca.transform(features)
+        features_train, features_test, labels_train, labels_test = \
+            train_test_split(new_features, labels, test_size=0.4, random_state=12)
+        best_classify_algorithm(features_train, features_test, labels_train, labels_test, n_feature)
 
     print ""
     prec_chart_line_by_model('PCA Performance')
@@ -455,25 +450,22 @@ def data_analyse():
     print "KNN tunned average {0} ".format(np.average(time_knn_tunned))
         
     selectkbest = SelectKBest(f_classif, k=2)
-    selectkbest.fit(features_train, labels_train)
+    selectkbest.fit(features, labels)
+    new_features = selectkbest.transform(features)
+    features_train, features_test, labels_train, labels_test = \
+        train_test_split(new_features, labels, test_size=0.4, random_state=12)    
     supported_list = selectkbest.get_support()
-
     #creating the feature list after run the selectkbestfeature.
     features_list = ['poi'] + [features_list[x+1] for x in range(0,len(supported_list)) if supported_list[x]==True ]
     print "Feature list after apply the selectkbest with 2 features: {0}".format(features_list)
-    new_features_train = selectkbest.transform(features_train)
-    new_features_test = SelectKBest(f_classif, k=2).fit_transform(features_test, labels_test)
+
     clean_precision_metric()
-    best_classify_algorithm(new_features_train, new_features_test, labels_train, labels_test, 2)        
+    best_classify_algorithm(features_train, features_test, labels_train, labels_test, 2)
     bar_chart_algorithm("Algorithm with the best number of features - 2",2)   
         
-    # Return the best algorithm
-    clf = best_algorithm(new_features_train, labels_train)    
-    dump_classifier_and_data(clf, my_dataset, features_list)
+    # Return the best algorithm    
+    dump_classifier_and_data(best_clf, my_dataset, features_list)
 
 if __name__ == '__main__':
     data_analyse()
-
-
-
     

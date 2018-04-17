@@ -1,8 +1,8 @@
 (lp0
 S'poi'
 p1
-aS'bonus'
+aS'exercised_stock_options'
 p2
-aS'fraction_to_poi'
+aS'total_stock_value'
 p3
 a.
