@@ -1,4 +1,6 @@
-#!/usr/bin/python
+#classification_report(labels_test, pred )     
+
+
 import sys
 import pickle
 import codecs
@@ -46,7 +48,15 @@ recall = {}
 f1score = {}
 
 best_clf = GaussianNB()
-best_precision = 0.1
+best_precision = 0.0
+best_recall = 0.0
+N_FEATURES = 12
+
+PERF_FORMAT_STRING = "\
+\tAccuracy: {:>0.{display_precision}f}\tPrecision: {:>0.{display_precision}f}\t\
+Recall: {:>0.{display_precision}f}\tF1: {:>0.{display_precision}f}\tF2: {:>0.{display_precision}f}"
+RESULTS_FORMAT_STRING = "\tTotal predictions: {:4d}\tTrue positives: {:4d}\tFalse positives: {:4d}\
+\tFalse negatives: {:4d}\tTrue negatives: {:4d}"
 
 def load_data():
     """ Load the dictionary containing the dataset     
@@ -191,13 +201,70 @@ def create_feature(data_dict, features_list):
     return my_dataset, features_list
 
 
-def print_metrics(pred, labels_test, model, n_feature):
-    """
-    Print the metrics Accuracy,precision, recall and f1-score and the number of features.
-    """    
-    accuracy = accuracy_score(pred,labels_test)
-    print 'Report from {0} model. N_feature {2}. Accuracy: {1} '.format(model,accuracy,n_feature)
-    print classification_report(labels_test, pred )     
+
+
+
+
+def test_classifier(clf, dataset, feature_list, folds, model, n_feature):
+
+    data = featureFormat(dataset, feature_list, sort_keys = True)
+    labels, features = targetFeatureSplit(data)
+    cv = StratifiedShuffleSplit(labels, folds, random_state = 42)
+    true_negatives = 0
+    false_negatives = 0
+    true_positives = 0
+    false_positives = 0
+    for train_idx, test_idx in cv: 
+        features_train = []
+        features_test  = []
+        labels_train   = []
+        labels_test    = []
+        for ii in train_idx:
+            features_train.append( features[ii] )
+            labels_train.append( labels[ii] )
+        for jj in test_idx:
+            features_test.append( features[jj] )
+            labels_test.append( labels[jj] )
+    
+        ### fit the classifier using training set, and test on test set
+        clf.fit(features_train, labels_train)
+        predictions = clf.predict(features_test)
+        for prediction, truth in zip(predictions, labels_test):
+            if prediction == 0 and truth == 0:
+                true_negatives += 1
+            elif prediction == 0 and truth == 1:
+                false_negatives += 1
+            elif prediction == 1 and truth == 0:
+                false_positives += 1
+            elif prediction == 1 and truth == 1:
+                true_positives += 1
+            else:
+                print "Warning: Found a predicted label not == 0 or 1."
+                print "All predictions should take value 0 or 1."
+                print "Evaluating performance for processed predictions:"
+                break
+    try:
+        total_predictions = true_negatives + false_negatives + false_positives + true_positives
+        t_accuracy = 1.0*(true_positives + true_negatives)/total_predictions
+        t_precision = 1.0*true_positives/(true_positives+false_positives)
+        t_recall = 1.0*true_positives/(true_positives+false_negatives)
+        t_f1 = 2.0 * true_positives/(2*true_positives + false_positives+false_negatives)
+        t_f2 = (1+2.0*2.0) * t_precision*t_recall/(4*t_precision + t_recall)                
+    except:        
+        print 'Error: {0} model. N_feature {1}.'.format(model,n_feature)        
+        t_accuracy = 0.0
+        t_precision = 0.0
+        t_recall = 0.0
+        t_f1 = 0.0
+        t_f2 = 0.0
+
+    best_class = store_verify_precision_metric(clf, model, n_feature, t_precision, t_accuracy, t_recall, t_f1)
+    print ""
+    print 'Report from {0} model. N_feature {1}.'.format(model,n_feature)
+    print PERF_FORMAT_STRING.format(t_accuracy, t_precision, t_recall, t_f1, t_f2, display_precision = 5)
+    print RESULTS_FORMAT_STRING.format(total_predictions, true_positives, false_positives, false_negatives, true_negatives)
+    print ""
+    return best_class
 
 def clean_precision_metric():
     """
@@ -209,25 +276,31 @@ def clean_precision_metric():
     f1score = {}
     
 
-def store_precision_metric(pred, estimator, labels_test, model, n_feature):
+def store_verify_precision_metric(estimator, model, n_feature, p_precision, p_accuracy, p_recall, p_f1score ):
     """
     Add the model, the number of features and the precision in the precion global variabel
+    return
+        bollean:
+            return True when the precision is the best
     """
     global best_precision
+    global best_recall
     global best_clf
     if not model in precision:
         precision[model] = {}
         accuracy[model] = {}
         recall[model] = {}
         f1score[model] = {}
-    ac_precision = precision_score(labels_test,pred,average='weighted')
-    precision[model][n_feature] = ac_precision
-    accuracy[model][n_feature] = accuracy_score(labels_test,pred)    
-    recall[model][n_feature] = recall_score(labels_test,pred,average='weighted')
-    f1score[model][n_feature] = f1_score(labels_test,pred,average='weighted')
-    if ac_precision > best_precision:
-        best_precision = ac_precision
+    precision[model][n_feature] = p_precision
+    accuracy[model][n_feature] = p_accuracy
+    recall[model][n_feature] = p_recall
+    f1score[model][n_feature] = p_f1score
+    if p_precision > 0.3 and p_recall > 0.3 and p_precision > best_precision and p_recall > best_recall:
+        best_precision = p_precision
+        best_recall = p_recall
         best_clf = estimator
+        return True
+    return False
 
 def bar_chart_algorithm(title,n_feature):     
     """
@@ -263,11 +336,10 @@ def prec_chart_line_by_model(title):
     """
     models = ['GaussianNB','Decision_tree','SVC','KNN']
     colors = ['g','r','c','b']
-    n_features_options = [2, 4, 7, 9]    
-    count = 0
+    n_features_options = [2, 4, 7, 9, 13]        
+    count = 0    
     for model in models:
-        array_precision = []
-        
+        array_precision = []        
         for n_feature in n_features_options:
             try:
                  precision[model][n_feature]
@@ -279,12 +351,40 @@ def prec_chart_line_by_model(title):
         matplotlib.pyplot.plot(n_features_options,array_precision, color=colors[count], label=model)
         count += 1
     matplotlib.pyplot.title(title)
-    matplotlib.pyplot.axis([2, 9, 0.7, 1])
+    matplotlib.pyplot.axis([2, 13, 0, 1.1])
     matplotlib.pyplot.legend(loc='upper right')
     matplotlib.pyplot.xlabel('Number of features')
     matplotlib.pyplot.ylabel('Precision')
     matplotlib.pyplot.show()
 
+def rec_chart_line_by_model(title):
+    """
+    Show the chart line of the recall colected from the 'GaussianNB','Decision_tree','SVC','KNN' models
+    for 2, 4, 7, 9 features.
+    """
+    models = ['GaussianNB','Decision_tree','SVC','KNN']
+    colors = ['g','r','c','b']
+    n_features_options = [2, 4, 7, 9, 13]    
+    print precision
+    count = 0    
+    for model in models:
+        array_precision = []        
+        for n_feature in n_features_options:
+            try:
+                 recall[model][n_feature]
+            except KeyError:
+                print "error: Model {0} with the feature {1}  are not present".format(model,n_feature)
+                return            
+            value_precision = recall[model][n_feature]
+            array_precision.append(value_precision)               
+        matplotlib.pyplot.plot(n_features_options,array_precision, color=colors[count], label=model)
+        count += 1
+    matplotlib.pyplot.title(title)
+    matplotlib.pyplot.axis([2, 9, 0.0, 1])
+    matplotlib.pyplot.legend(loc='upper right')
+    matplotlib.pyplot.xlabel('Number of features')
+    matplotlib.pyplot.ylabel('Recall')
+    matplotlib.pyplot.show()
 
 def print_best_estimator(grid_search,model):
     try:
@@ -295,15 +395,21 @@ def print_best_estimator(grid_search,model):
     print "The best estimator parameter for the model {0} is {1}".format(model,grid_search.best_estimator_)
 
 
-def best_classify_algorithm(features_train, features_test, labels_train, labels_test, n_feature):    
+def best_classify_algorithm(features_train, features_test, labels_train, labels_test, n_feature, feature_list, my_dataset):
     """
     Print the metrics accuracy, precision, recall and F1-SCORE from the GaussianNB, Decision Tree, SVC, KNeighbors classifier algorithm:
+    return: 
+        boolean
+            return True when the best precision is found
     """
+    l_best_precision = False
+    K_FOLD = 500
     clf = GaussianNB()    
     clf.fit(features_train,labels_train)
     pred = clf.predict(features_test)    
-    print_metrics(pred, labels_test, "GaussianNB",n_feature)
-    store_precision_metric(pred, clf,labels_test, "GaussianNB", n_feature)
+    ver = test_classifier(clf, my_dataset, feature_list, K_FOLD, "GaussianNB", n_feature)    
+    if ver:
+        l_best_precision = True
 
     pipeline = Pipeline([('decision_tree', DecisionTreeClassifier(random_state = 42))])
     parameters = [{'decision_tree__min_samples_split': [2,3,4], 'decision_tree__criterion': ['gini', 'entropy']}]
@@ -311,17 +417,17 @@ def best_classify_algorithm(features_train, features_test, labels_train, labels_
     grid_search = GridSearchCV(estimator=pipeline, param_grid=parameters)
     grid_search.fit(features_train, labels_train)
     pred = grid_search.predict(features_test)
-    time_decision_tree_tunned.append(time.time() - start)        
-    print_metrics(pred, labels_test, "Decision_tree tunned", n_feature)    
-    store_precision_metric(pred, grid_search.best_estimator_, labels_test, "Decision_tree", n_feature)
-    print_best_estimator(grid_search,"Decision_tree")
+    time_decision_tree_tunned.append(time.time() - start)            
+    ver = test_classifier(grid_search.best_estimator_, my_dataset, feature_list,K_FOLD, "Decision_tree", n_feature)
+    if ver:
+        l_best_precision = True        
 
     start = time.time()
     clf = DecisionTreeClassifier(random_state = 42)
     clf.fit(features_train, labels_train)
     pred = clf.predict(features_test)
     time_decision_tree.append(time.time() - start)
-    print_metrics(pred, labels_test, "Decision_tree ", n_feature)    
+    test_classifier(clf, my_dataset, feature_list, 300, "Decision_treeNoTunned", n_feature)
     
     c = np.linspace(0.1,10,10)
     gamma  = np.linspace(0.01,1,10)    
@@ -334,19 +440,20 @@ def best_classify_algorithm(features_train, features_test, labels_train, labels_
     grid_search = GridSearchCV(estimator = pipeline, param_grid = parameters)
     grid_search.fit(features_train, labels_train)
     pred = grid_search.predict(features_test)
-    time_svc_tunned.append(time.time() - start)    
-    print_metrics(pred, labels_test, "SVC Tunned", n_feature)    
-    store_precision_metric(pred, grid_search.best_estimator_, labels_test, "SVC", n_feature)
-    print_best_estimator(grid_search,"SVC")
-    
+    time_svc_tunned.append(time.time() - start)        
+    ver = test_classifier(grid_search.best_estimator_, my_dataset, feature_list, K_FOLD, "SVC", n_feature)
+    if ver:
+        l_best_precision = True
+  
     start = time.time()
     clf = SVC(random_state = 42)
     clf.fit(features_train, labels_train)
     pred = clf.predict(features_test)
     time_svc.append(time.time() - start)
-    print_metrics(pred, labels_test, "SVC ", n_feature)
+    test_classifier(clf, my_dataset, feature_list,300, "SVCNoTunned", n_feature)
     
-    k = np.arange(4) + 1
+    
+    k = np.arange(4) + 2
     parameters = [{'knn__n_neighbors': k, 'knn__weights':['uniform','distance']}]
     pipeline = Pipeline([('knn',KNeighborsClassifier())])
     start = time.time()
@@ -354,23 +461,27 @@ def best_classify_algorithm(features_train, features_test, labels_train, labels_
     grid_search.fit(features_train, labels_train)
     pred = grid_search.predict(features_test)
     time_knn_tunned.append(time.time() - start)
-    print_metrics(pred, labels_test, "KNN Tunned", n_feature)    
-    store_precision_metric(pred, grid_search.best_estimator_, labels_test, "KNN", n_feature)
-    print_best_estimator(grid_search,"knn")
+    ver = test_classifier(grid_search.best_estimator_, my_dataset, feature_list, K_FOLD, "KNN", n_feature)    
+    if ver:
+        l_best_precision = True    
+    #print_best_estimator(grid_search,"knn")
 
     start = time.time()
     clf = KNeighborsClassifier()
     clf.fit(features_train, labels_train)
     pred = clf.predict(features_test)
     time_knn.append(time.time() - start)
-    store_precision_metric(pred, clf, labels_test, "KNNnoTunned", n_feature)
-    print_metrics(pred, labels_test, "KNN ", n_feature)
+    test_classifier(clf, my_dataset, feature_list, K_FOLD, "KNNnoTunned", n_feature)
+
     
+    return l_best_precision
 
 def data_analyse():
     """
     Generate informaton about the dataset and find the best indentifier.
     """
+    TEST_SIZE = 0.1
+    global N_FEATURES
     features_list = ['poi','salary','expenses','total_payments','exercised_stock_options','bonus','restricted_stock','total_stock_value','from_poi_to_this_person','shared_receipt_with_poi','from_messages'] # You will need to use more features
     data_dict = load_data()
     #get information about the dataset
@@ -396,6 +507,7 @@ def data_analyse():
     print_scatter(data_dict,features_list,1,2)
     #create new feature    
     my_dataset, features_list  = create_feature(data_dict,features_list)
+    #my_dataset = increase_size_dataset(data_dict, 20)
     #show the reason to scale.
     key = 'HANNON KEVIN P'
     print "Index {0} : Salary {1:.2f},  Total stock value {2:.2f}".format(key, float(data_dict[key]['salary']), float(data_dict[key]['total_stock_value']))
@@ -407,27 +519,40 @@ def data_analyse():
 
     data = featureFormat(my_dataset, features_list, remove_all_zeroes=True, sort_keys = False)
     labels, features = targetFeatureSplit(data) 
-    
+        
     features_train, features_test, labels_train, labels_test = \
-        train_test_split(features, labels, test_size=0.4, random_state=12)
+        train_test_split(features, labels, test_size=TEST_SIZE, random_state=12)
 
     #print the metrics prediction for all features.
     print "All features"
-    best_classify_algorithm(features_train, features_test, labels_train, labels_test,len(features_list))
-    print "precision {0}".format(precision)
-    clean_precision_metric()
+    N_FEATURE = len(features_list)
+    
     #reduce the number of features using the selectkbest function
     print "Selectk best"
     n_features_options = [2, 4, 7, 9]
+    final_feature_list = features_list
     for n_feature in n_features_options:
         print "k features {0}".format(n_feature)
-        new_features = SelectKBest(f_classif, k=n_feature).fit_transform(features, labels)        
+        selectkbest = SelectKBest(f_classif, k=n_feature).fit(features, labels)                
+        new_features = selectkbest.transform(features)
+        supported_list = selectkbest.get_support()
+        t_features_list = ['poi'] + [features_list[x+1] for x in range(0,len(supported_list)) if supported_list[x]==True ]        
         features_train, features_test, labels_train, labels_test = \
-            train_test_split(new_features, labels, test_size=0.4, random_state=12)
-        best_classify_algorithm(features_train, features_test, labels_train, labels_test, n_feature)
+            train_test_split(new_features, labels, test_size=TEST_SIZE, random_state=12)
+        ver = best_classify_algorithm(features_train, features_test, labels_train, labels_test, n_feature, t_features_list,my_dataset)
+        print "is the best? {0} ".format(ver)
+        print "feature list {0}".format(t_features_list)
+        if ver:
+            N_FEATURES = n_feature
+            final_feature_list = t_features_list
     print ""    
-    prec_chart_line_by_model('SelectKBest Performance')
-    clean_precision_metric()
+    ver = best_classify_algorithm(features_train, features_test, labels_train, labels_test,len(features_list),features_list, my_dataset)            
+    if ver:
+        N_FEATURE = len(features_list)
+        final_feature_list = features_list
+    prec_chart_line_by_model('Precision SelectKBest Performance')
+    rec_chart_line_by_model('Recall SelectKBest Performance')    
+    
     #reduce the number of features using the pca function
     print "PCA - Principal component analysis"
     for n_feature in n_features_options:
@@ -435,11 +560,12 @@ def data_analyse():
         pca = PCA(n_components=n_feature, whiten=True,svd_solver='randomized').fit(features)
         new_features = pca.transform(features)
         features_train, features_test, labels_train, labels_test = \
-            train_test_split(new_features, labels, test_size=0.4, random_state=12)
-        best_classify_algorithm(features_train, features_test, labels_train, labels_test, n_feature)
+            train_test_split(new_features, labels, test_size=TEST_SIZE, random_state=12)
+        ver = best_classify_algorithm(features_train, features_test, labels_train, labels_test, n_feature,features_list,my_dataset)
 
     print ""
-    prec_chart_line_by_model('PCA Performance')
+    prec_chart_line_by_model('Precision PCA Performance')
+    rec_chart_line_by_model('Recall PCA Performance')
     print "Average time"
 
     print "Decision Tree average {0} ".format(np.average(time_decision_tree))
@@ -448,23 +574,21 @@ def data_analyse():
     print "SVC tunned average {0} ".format(np.average(time_svc_tunned))
     print "KNN average {0} ".format(np.average(time_knn))
     print "KNN tunned average {0} ".format(np.average(time_knn_tunned))
-        
-    selectkbest = SelectKBest(f_classif, k=2)
-    selectkbest.fit(features, labels)
-    new_features = selectkbest.transform(features)
-    features_train, features_test, labels_train, labels_test = \
-        train_test_split(new_features, labels, test_size=0.4, random_state=12)    
-    supported_list = selectkbest.get_support()
+ 
     #creating the feature list after run the selectkbestfeature.
-    features_list = ['poi'] + [features_list[x+1] for x in range(0,len(supported_list)) if supported_list[x]==True ]
-    print "Feature list after apply the selectkbest with 2 features: {0}".format(features_list)
-
-    clean_precision_metric()
-    best_classify_algorithm(features_train, features_test, labels_train, labels_test, 2)
-    bar_chart_algorithm("Algorithm with the best number of features - 2",2)   
+    print "N_FEAUTRES {0}".format(N_FEATURES)
+    selectkbest = SelectKBest(f_classif, k=N_FEATURES).fit(features, labels)                
+    new_features = selectkbest.transform(features)
+    supported_list = selectkbest.get_support()
+    t_features_list = ['poi'] + [features_list[x+1] for x in range(0,len(supported_list)) if supported_list[x]==True ]        
+    features_train, features_test, labels_train, labels_test = \
+        train_test_split(new_features, labels, test_size=TEST_SIZE, random_state=12)    
+    ver = best_classify_algorithm(features_train, features_test, labels_train, labels_test, N_FEATURES, t_features_list,my_dataset)    
+    print "Feature list after apply the selectkbest: {0}".format(t_features_list)            
+    bar_chart_algorithm("Algorithm with the best number of features", N_FEATURES)   
         
     # Return the best algorithm    
-    dump_classifier_and_data(best_clf, my_dataset, features_list)
+    dump_classifier_and_data(best_clf, my_dataset, final_feature_list)
 
 if __name__ == '__main__':
     data_analyse()
